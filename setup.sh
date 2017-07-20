@@ -63,7 +63,7 @@ done
 
 shift $((OPTIND-1))
 
-project_dir="$(cd "$( dirname "${BASH_SOURCE[0]}" )/../" && pwd)/REST API for SDK"
+project_dir="$(cd "$( dirname "${BASH_SOURCE[0]}" )/../" && pwd)/fabric-sdk-rest"
 
 # Update private key in datasources.json
 if [[ -n $update_keys ]]; then
