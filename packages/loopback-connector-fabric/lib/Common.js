@@ -29,6 +29,34 @@
 //Use this file for common utility functions
 
 /**
+* Check proposalResponses and return number that failed.
+*
+* @param {proposalResponses} proposalResponses The responses from a proposal
+* @returns {integer} The number of responses with.
+*/
+exports.countFailedProposalResponses = function(proposalResponses){
+  var failedCount = 0;
+  var all_good = true;
+  //Do some internal checking to help debug.
+  for (var i in proposalResponses) {
+    if (proposalResponses && proposalResponses[i].response &&
+      proposalResponses[i].response.status === 200) {
+      logger.info("Proposal was good, peer index is " + i);
+    } else {
+      logger.error("Proposal was bad, peer index is " + i);
+      failedCount += 1;
+    }
+  }
+  if (failedCount == 0) {
+    logger.info("Successfully sent Proposal and received ProposalResponse: Status - 200");
+  } else {
+    logger.debug("Failed to send Proposal or receive valid response. Response null or status is not 200.");
+    logger.debug( JSON.stringify(proposalResponses) );
+  }
+  return failedCount;
+}
+
+/**
 * Get a new {Client} that has been configured.
 *
 * @param {Object} settings The settings passed to the loopback connector

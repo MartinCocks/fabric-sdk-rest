@@ -89,26 +89,8 @@ class HFCSDKConnector extends Connector {
         return theClient.installChaincode(request);
     }).then((results) => {
   		var proposalResponses = results[0];
-  		var proposal = results[1];
-  		var all_good = true;
       //Do some internal checking to help debug.
-  		for (var i in proposalResponses) {
-  			let one_good = false;
-  			if (proposalResponses && proposalResponses[i].response &&
-  				proposalResponses[i].response.status === 200) {
-  				one_good = true;
-  				logger.info("Install proposal was good, peer index is " + i);
-  			} else {
-  				logger.error("Install proposal was bad, peer index is " + i);
-  			}
-  			all_good = all_good & one_good;
-  		}
-  		if (all_good) {
-  			logger.info("Successfully sent install Proposal and received ProposalResponse: Status - 200");
-  		} else {
-  			logger.debug("Failed to send install Proposal or receive valid response. Response null or status is not 200.");
-        logger.debug( JSON.stringify(results) );
-  		}
+      var failed = Common.countFailedProposalResponses(proposalResponses);
       var resp = {};
       resp.peerResponses = results;
       //Always send results from Peers even if not all worked.
@@ -206,11 +188,20 @@ class HFCSDKConnector extends Connector {
       return theChannel.sendInstantiateProposal(request);
 
     }).then( (instantiateResponse)=>{
+      //6 Check instantiate went okay
+      var failed = Common.countFailedProposalResponses(instantiateResponse[0]);
+      if(failed > 0){
+        logger.info(failed + " bad responses from instantiate requests");
+        //Pass back failed instantiateResponses to client
+        var resp = {}
+        resp.peerResponses = instantiateResponse;
+        return Promise.resolve(resp);
+      }
       logger.debug("postChannelsChannelNameChaincodes() - proposed okay, sending to orderer");
       var tranRequest = {};
       tranRequest.proposalResponses = instantiateResponse[0];
       tranRequest.proposal = instantiateResponse[1];
-      //6. Once the proposal results are available we can send to the orderer.
+      //7. Once the proposal results are available we can send to the orderer.
       return theChannel.sendTransaction(tranRequest);
     }).then( (ordererResponse)=>{
       //REST caller may need to know txId for later query
@@ -236,52 +227,73 @@ class HFCSDKConnector extends Connector {
   putChannelsChannelNameChaincodes(channelName, peers, chaincode, lbConnector){
     // Check that chaincode exists, then do the same as postChannelsChannelNameChaincodes.
     var request = {};
+    var theClient;
+    var theChannel;
 
     //1. Get a new client instance.
     return Common.getClientWithChannels(lbConnector.settings).then( (aClient) =>{
       logger.debug("putChannelsChannelNameChaincodes() - created client instance");
+      theClient = aClient;
       //2. Get the Channel to instantiate chaincode on
-      var theChannel = aClient.getChannel(channelName);
-
-      //3. Check if chaincode exists on channel, return 404 if not as nothing to upgrade.
+      theChannel = aClient.getChannel(channelName);
+      //3. Channel must be initialized to instantiate chaincode.
+      return theChannel.initialize();
+    }).then( (ignored)=>{
+      //4. Check if chaincode exists on channel, return 404 if not as nothing to upgrade.
       return theChannel.queryInstantiatedChaincodes();
     }).then( (installedChaincodes) =>{
       logger.debug("putChannelsChannelNameChaincodes() - queried chaincodes okay");
       var id = chaincode.chaincodeId;
-      //4. Loop through response and if no matche found reject with "Not Found", 404
+      var foundIndex = -1;
+      //5. Loop through response and if no matche found reject with "Not Found", 404
       if(installedChaincodes.chaincodes && installedChaincodes.chaincodes.length > 0){
         installedChaincodes.chaincodes.forEach( function(aChaincode,index){
-            if(aChaincode.name && aChaincode.name === id){
-              return Promise.resolve( aChaincode );
+            if(aChaincode.name === id){
+              foundIndex = index;;
             };
           }
         )
       }
-      logger.debug("putChannelsChannelNameChaincodes() - chaincode not instantiated: " + id);
-      var err = new Error("Not Found");
-      err.statusCode = 404;
-      return Promise.reject(err);
+      if(foundIndex >= 0){
+        return Promise.resolve(installedChaincodes.chaincodes[foundIndex]);
+      } else {
+        logger.debug("putChannelsChannelNameChaincodes() - chaincode not instantiated: " + id);
+        var err = new Error("Not Found");
+        err.statusCode = 404;
+        return Promise.reject(err);
+      }
     }).then( (found)=>{
       // Chaincode exists so okay to try and update it.
       logger.debug("putChannelsChannelNameChaincodes() - chaincode found, proposing update");
-
-      //5. build txId
+      //6. build txId
       request = chaincode;
-      request.txId = aClient.getTransactionID();
+      request.txId = theClient.newTransactionID();
 
-      //6. Propose it
+      //7. Propose it
       return theChannel.sendInstantiateProposal(request);
 
-    }).then( (tranReq)=>{
-      logger.debug("postChannelsChannelNameChaincodes() - proposed okay, sending to orderer");
-      //7. Once the proposal results are available we can send to the orderer.
-      return theChannel.sendTransaction(tranReq);
+    }).then( (instantiateResponse)=>{
+      //6 Check instantiate went okay
+      var failed = Common.countFailedProposalResponses(instantiateResponse[0]);
+      if(failed > 0){
+        logger.info(failed + " bad responses from instantiate requests");
+        //Pass back failed instantiateResponses to client
+        var resp = {}
+        resp.peerResponses = instantiateResponse;
+        return Promise.resolve(resp);
+      }
+      logger.debug("putChannelsChannelNameChaincodes() - proposed okay, sending to orderer");
+      var tranRequest = {};
+      tranRequest.proposalResponses = instantiateResponse[0];
+      tranRequest.proposal = instantiateResponse[1];
+      //8. Once the proposal results are available we can send to the orderer.
+      return theChannel.sendTransaction(tranRequest);
     }).then( (ordererResponse)=>{
-      //REST caller may need to know txId
+      //REST caller may need to know txId for later query
       ordererResponse.txId = request.txId;
-      return Promise.resove(ordererResponse);
+      return Promise.resolve(ordererResponse);
     }).catch((err)=>{
-      logger.debug("postChannelsChannelNameChaincodes() - Error caught");
+      logger.debug("putChannelsChannelNameChaincodes() - Error caught");
       if(err instanceof Error && !err.statusCode) err.statusCode = 501;
       return Promise.reject(err);
     });
