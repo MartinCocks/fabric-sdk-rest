@@ -83,7 +83,7 @@ class HFCSDKConnector extends Connector {
         request.txId = theClient.newTransactionID();
         request.chaincodePackage = packageBuffer;
 
-        logger.debug("postChaincodes() - About to call installChaincode");
+        logger.debug("postChaincodes() - About to call installChaincode, "+request.chaincodeId+", "+request.chaincodeVersion);
 
         //Expects https://fabric-sdk-node.github.io/global.html#ChaincodeInstallRequest with a targets parameter too.
         return theClient.installChaincode(request);
@@ -190,6 +190,7 @@ class HFCSDKConnector extends Connector {
     }).then( (instantiateResponse)=>{
       //6 Check instantiate went okay
       var failed = Common.countFailedProposalResponses(instantiateResponse[0]);
+      //TODO Find endorsement policy and see if enough passed to continue.
       if(failed > 0){
         logger.info(failed + " bad responses from instantiate requests");
         //Pass back failed instantiateResponses to client
@@ -241,13 +242,13 @@ class HFCSDKConnector extends Connector {
     }).then( (ignored)=>{
       //4. Check if chaincode exists on channel, return 404 if not as nothing to upgrade.
       return theChannel.queryInstantiatedChaincodes();
-    }).then( (installedChaincodes) =>{
+    }).then( (instantiatedChaincodes) =>{
       logger.debug("putChannelsChannelNameChaincodes() - queried chaincodes okay");
       var id = chaincode.chaincodeId;
       var foundIndex = -1;
       //5. Loop through response and if no matche found reject with "Not Found", 404
-      if(installedChaincodes.chaincodes && installedChaincodes.chaincodes.length > 0){
-        installedChaincodes.chaincodes.forEach( function(aChaincode,index){
+      if(instantiatedChaincodes.chaincodes && instantiatedChaincodes.chaincodes.length > 0){
+        instantiatedChaincodes.chaincodes.forEach( function(aChaincode,index){
             if(aChaincode.name === id){
               foundIndex = index;;
             };
@@ -255,7 +256,7 @@ class HFCSDKConnector extends Connector {
         )
       }
       if(foundIndex >= 0){
-        return Promise.resolve(installedChaincodes.chaincodes[foundIndex]);
+        return Promise.resolve(instantiatedChaincodes.chaincodes[foundIndex]);
       } else {
         logger.debug("putChannelsChannelNameChaincodes() - chaincode not instantiated: " + id);
         var err = new Error("Not Found");
@@ -270,22 +271,23 @@ class HFCSDKConnector extends Connector {
       request.txId = theClient.newTransactionID();
 
       //7. Propose it
-      return theChannel.sendInstantiateProposal(request);
+      return theChannel.sendUpgradeProposal(request);
 
-    }).then( (instantiateResponse)=>{
+    }).then( (upgradeResponse)=>{
       //6 Check instantiate went okay
-      var failed = Common.countFailedProposalResponses(instantiateResponse[0]);
+      var failed = Common.countFailedProposalResponses(upgradeResponse[0]);
+      //TODO Find endorsement policy and see if enough passed to continue.
       if(failed > 0){
-        logger.info(failed + " bad responses from instantiate requests");
+        logger.info(failed + " bad responses from upgrade requests");
         //Pass back failed instantiateResponses to client
         var resp = {}
-        resp.peerResponses = instantiateResponse;
+        resp.peerResponses = upgradeResponse;
         return Promise.resolve(resp);
       }
       logger.debug("putChannelsChannelNameChaincodes() - proposed okay, sending to orderer");
       var tranRequest = {};
-      tranRequest.proposalResponses = instantiateResponse[0];
-      tranRequest.proposal = instantiateResponse[1];
+      tranRequest.proposalResponses = upgradeResponse[0];
+      tranRequest.proposal = upgradeResponse[1];
       //8. Once the proposal results are available we can send to the orderer.
       return theChannel.sendTransaction(tranRequest);
     }).then( (ordererResponse)=>{
