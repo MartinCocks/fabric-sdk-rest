@@ -1,5 +1,5 @@
 'use strict';
 
-module.exports = function(Chaincodequeryresponse) {
+module.exports = function(ChaincodeQueryResponse) {
 
 };
