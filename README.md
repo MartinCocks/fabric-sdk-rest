@@ -1,5 +1,11 @@
 # Hyperledger Fabric REST API, fabric-sdk-rest
 
+We've moved! Development is now through [Hyperledger's
+Gerrit](https://gerrit.hyperledger.org/r/#/admin/projects/fabric-sdk-rest),
+with a [read-only GitHub
+repository](https://github.com/hyperledger/fabric-sdk-rest).
+
+
 ## License
 
 This project is licensed under [Apache License Version 2.0](LICENSE).
